@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sachi Chakki — Stock Audit & Inventory ERP</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; color: #0f172a; }
+  .tab-btn.active { background-color: #0f172a; color: #ffffff; border-color: #0f172a; }
+  .loader { border: 3px solid #e2e8f0; border-top: 3px solid #0284c7; border-radius: 50%; width: 22px; height: 22px; animation: spin 0.8s linear infinite; display: inline-block; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- TOP HEADER -->
+<header class="bg-slate-900 text-white shadow-lg sticky top-0 z-40">
+  <div class="max-w-[1600px] mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center font-extrabold text-slate-950 text-lg">SC</div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight leading-none">Stock Audit & Reconciliation ERP</h1>
+        <p class="text-xs text-slate-400 mt-1">9 Branches • Real-Time Target vs Adjustment Engine</p>
+      </div>
+    </div>
+
+    <!-- MAIN NAVIGATION -->
+    <nav class="flex flex-wrap items-center gap-1.5 bg-slate-800 p-1 rounded-xl">
+      <button onclick="switchTab('dashboard')" id="nav-dashboard" class="tab-btn active px-3.5 py-2 rounded-lg text-xs font-semibold transition">Dashboard</button>
+      <button onclick="switchTab('opt1')" id="nav-opt1" class="tab-btn text-slate-300 hover:text-white px-3.5 py-2 rounded-lg text-xs font-semibold transition">1. Daily & Auditor Performance</button>
+      <button onclick="switchTab('opt2')" id="nav-opt2" class="tab-btn text-slate-300 hover:text-white px-3.5 py-2 rounded-lg text-xs font-semibold transition">2. Master Items Status</button>
+      <button onclick="switchTab('opt3')" id="nav-opt3" class="tab-btn text-slate-300 hover:text-white px-3.5 py-2 rounded-lg text-xs font-semibold transition">3. 300-Item Pending Batches</button>
+      <button onclick="switchTab('opt4')" id="nav-opt4" class="tab-btn text-slate-300 hover:text-white px-3.5 py-2 rounded-lg text-xs font-semibold transition">4. Auditor Transfers & Staff</button>
+      <button onclick="switchTab('opt5')" id="nav-opt5" class="tab-btn text-slate-300 hover:text-white px-3.5 py-2 rounded-lg text-xs font-semibold transition">5. Full Working & Import</button>
+    </nav>
+
+    <div class="flex items-center gap-2">
+      <span id="db-status" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 font-medium">Connecting...</span>
+      <button onclick="loadAllData()" class="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-lg font-semibold">↻ Sync</button>
+    </div>
+  </div>
+</header>
+
+<!-- LOADING BAR -->
+<div id="global-loader" class="hidden bg-sky-600 text-white text-xs py-1.5 px-4 text-center font-medium">
+  <span id="loader-text">Syncing records from Supabase...</span>
+</div>
+
+<!-- MAIN CONTENT -->
+<main class="max-w-[1600px] w-full mx-auto px-4 py-6 flex-1">
+
+  <!-- ==================== TAB 0: DASHBOARD ==================== -->
+  <section id="tab-dashboard" class="space-y-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 border-l-4 border-l-slate-800">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">1. Total Target Items</p>
+        <h2 id="kpi-total-target" class="text-2xl font-extrabold text-slate-900 mt-2">0</h2>
+        <p class="text-xs text-slate-400 mt-1">Assigned across all branches</p>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 border-l-4 border-l-sky-600">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">2. Total Audited Items</p>
+        <h2 id="kpi-total-audited" class="text-2xl font-extrabold text-sky-700 mt-2">0</h2>
+        <p class="text-xs text-slate-400 mt-1">Unique items (Target + Extra)</p>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 border-l-4 border-l-emerald-600">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">3. Target Items Audited</p>
+        <h2 id="kpi-target-audited" class="text-2xl font-extrabold text-emerald-700 mt-2">0</h2>
+        <p id="kpi-target-pct" class="text-xs text-emerald-600 font-semibold mt-1">0% Completed</p>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 border-l-4 border-l-amber-500">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">4. Extra Items Audited</p>
+        <h2 id="kpi-extra-audited" class="text-2xl font-extrabold text-amber-600 mt-2">0</h2>
+        <p class="text-xs text-slate-400 mt-1">Outside target list</p>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 border-l-4 border-l-rose-600">
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">5. Net Amount Difference</p>
+        <h2 id="kpi-net-amount" class="text-2xl font-extrabold text-rose-700 mt-2">Rs. 0</h2>
+        <p id="kpi-amount-sub" class="text-xs text-slate-500 mt-1">Short vs Excess Financial Impact</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h3 class="text-sm font-bold text-slate-800">Operational Modules</h3>
+        <p class="text-xs text-slate-500">Select any module below to inspect reports, generate batches, or import daily data</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button onclick="switchTab('opt1')" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-lg">1. Auditor & Day Performance</button>
+        <button onclick="switchTab('opt2')" class="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg">2. Target / Pending / Extra Items</button>
+        <button onclick="switchTab('opt3')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg">3. 300-Item Batches (Sub-Group)</button>
+        <button onclick="switchTab('opt4')" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg">4. Transfer / Manage Auditors</button>
+        <button onclick="switchTab('opt5')" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2.5 rounded-lg">5. Full Report & Excel Import</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-base font-bold text-slate-800">9 Branches Live Audit Overview</h3>
+        <span class="text-xs text-slate-500">Deduplicated by Same Branch + Same Day + Item Code</span>
+      </div>
+      <div id="branch-cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+  </section>
+
+  <!-- ==================== OPTION 1: AUDITOR & DAILY PERFORMANCE ==================== -->
+  <section id="tab-opt1" class="hidden space-y-5">
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Option 1: Auditor & Daily Working Performance</h2>
+          <p class="text-xs text-slate-500">Filter by Branch, Auditor, or Single Date — and download 3 specialized Excel reports</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="exportOpt1Excel('auditor_summary')" class="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg">⬇ 1. Total Auditor Summary (.xlsx)</button>
+          <button onclick="exportOpt1Excel('item_details')" class="bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold px-3 py-2 rounded-lg">⬇ 2. Items & Adj# Details (.xlsx)</button>
+          <button onclick="exportOpt1Excel('branch_summary')" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-lg">⬇ 3. Branch Summary (.xlsx)</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Filter by Branch</label>
+          <select id="opt1-branch" onchange="renderOpt1()" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Filter by Auditor</label>
+          <select id="opt1-auditor" onchange="renderOpt1()" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Filter by Date (Single Day)</label>
+          <input type="date" id="opt1-date" onchange="renderOpt1()" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium bg-white">
+        </div>
+        <div class="flex items-end">
+          <button onclick="resetOpt1Filters()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold py-2 rounded-lg border border-slate-300">Show Overall (Clear Filters)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-900 text-white uppercase">
+            <tr>
+              <th class="p-3">Date</th>
+              <th class="p-3">Branch</th>
+              <th class="p-3">Auditor Name</th>
+              <th class="p-3 text-right">Branch Target</th>
+              <th class="p-3 text-right">Total Audited</th>
+              <th class="p-3 text-right">Target Done</th>
+              <th class="p-3 text-right">Extra Items</th>
+              <th class="p-3 text-right">Branch Pending</th>
+              <th class="p-3 text-right">Amount Diff (Rs.)</th>
+            </tr>
+          </thead>
+          <tbody id="opt1-tbody" class="divide-y divide-slate-100"></tbody>
+          <tfoot id="opt1-tfoot" class="bg-slate-100 font-bold border-t-2 border-slate-300"></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== OPTION 2: MASTER ITEMS STATUS ==================== -->
+  <section id="tab-opt2" class="hidden space-y-5">
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Option 2: Master Items Audit Status (Audited / Pending / Extra)</h2>
+          <p class="text-xs text-slate-500">View overall or single-branch status of every item and export directly to Excel</p>
+        </div>
+        <button onclick="exportOpt2Excel()" class="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold px-4 py-2 rounded-lg">⬇ Download Filtered Report (.xlsx)</button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mt-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Branch (Overall / Single)</label>
+          <select id="opt2-branch" onchange="renderOpt2()" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium bg-white"></select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Audit Status</label>
+          <select id="opt2-status" onchange="renderOpt2()" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium bg-white">
+            <option value="ALL">All Items (Target + Extra)</option>
+            <option value="AUDITED">Target Items — Audited</option>
+            <option value="PENDING">Target Items — Pending</option>
+            <option value="EXTRA">Extra Items (Non-Target)</option>
+          </select>
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Search Code / Barcode / Description</label>
+          <input type="text" id="opt2-search" onkeyup="renderOpt2()" placeholder="Type item code, barcode or name..." class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+        </div>
+      </div>
+
+      <div id="opt2-summary-strip" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-slate-100 text-xs"></div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto max-h-[600px]">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-900 text-white uppercase sticky top-0">
+            <tr>
+              <th class="p-3">Branch</th>
+              <th class="p-3">Status</th>
+              <th class="p-3">Group / Sub-Group</th>
+              <th class="p-3">Code</th>
+              <th class="p-3">Barcode</th>
+              <th class="p-3">Item Description</th>
+              <th class="p-3 text-right">Oct Sale</th>
+              <th class="p-3 text-right">Net Diff (Rs.)</th>
+            </tr>
+          </thead>
+          <tbody id="opt2-tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+      <div id="opt2-pagination" class="p-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 flex justify-between items-center"></div>
+    </div>
+  </section>
+
+  <!-- ==================== OPTION 3: 300-ITEM PENDING BATCHES ==================== -->
+  <section id="tab-opt3" class="hidden space-y-5">
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Option 3: Dynamic 300-Item Pending Batches (Sub-Group Wise)</h2>
+          <p class="text-xs text-slate-500">Automatically excludes audited items and organizes remaining pending items into 300-item daily audit sheets sorted by Sub-Group</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="opt3-branch" onchange="renderOpt3()" class="border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold bg-white"></select>
+          <button onclick="exportAllBatchesExcel()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-lg">⬇ Download All Batches Workbook (.xlsx)</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="opt3-batches-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+  </section>
+
+  <!-- ==================== OPTION 4: AUDITOR TRANSFERS & MANAGEMENT ==================== -->
+  <section id="tab-opt4" class="hidden space-y-6">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 space-y-3">
+        <h3 class="text-base font-bold text-slate-900 border-b pb-2">Add New Auditor</h3>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Auditor Full Name</label>
+          <input type="text" id="new-aud-name" placeholder="e.g. Muhammad Usman" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Assigned Branch</label>
+          <select id="new-aud-branch" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white"></select>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Daily Target</label>
+            <input type="number" id="new-aud-target" value="300" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Target Days</label>
+            <input type="number" id="new-aud-days" value="25" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+          </div>
+        </div>
+        <button onclick="addAuditor()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 rounded-lg">+ Add Auditor to System</button>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 space-y-3">
+        <h3 class="text-base font-bold text-slate-900 border-b pb-2">Transfer Auditor to Another Branch</h3>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Select Auditor</label>
+          <select id="tr-aud-select" onchange="autoFillFromBranch()" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white"></select>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Current Branch</label>
+            <input type="text" id="tr-from-branch" readonly class="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Transfer To Branch</label>
+            <select id="tr-to-branch" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white"></select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Effective Transfer Date</label>
+          <input type="date" id="tr-date" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs">
+        </div>
+        <button onclick="transferAuditor()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 rounded-lg">⇄ Execute Branch Transfer</button>
+      </div>
+
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+        <h3 class="text-base font-bold text-slate-900 border-b pb-2 mb-3">Active Auditors Roster</h3>
+        <div id="auditors-roster-list" class="space-y-2 max-h-[300px] overflow-y-auto"></div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+      <h3 class="text-base font-bold text-slate-900 mb-3">Auditor Branch Transfer History</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-800 text-white uppercase">
+            <tr>
+              <th class="p-3">Transfer Date</th>
+              <th class="p-3">Auditor Name</th>
+              <th class="p-3">From Branch</th>
+              <th class="p-3">To Branch</th>
+              <th class="p-3">Notes</th>
+            </tr>
+          </thead>
+          <tbody id="transfer-history-tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== OPTION 5: FULL WORKING REPORT & IMPORT ==================== -->
+  <section id="tab-opt5" class="hidden space-y-6">
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Option 5: Full Working Ledger & Daily Excel Data Import</h2>
+          <p class="text-xs text-slate-500">Upload your workbook (`itrems `, `TARGATS`, `AJSTMINTS`) or daily adjustment sheet to update Supabase automatically</p>
+        </div>
+        <button onclick="exportFullWorkingExcel()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-lg">⬇ Download Complete Master Working Report (.xlsx)</button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div class="border-2 border-dashed border-sky-300 bg-sky-50/50 rounded-xl p-4">
+          <p class="text-xs font-bold text-sky-900 uppercase">Import / Sync Excel File (.xlsx / .xls)</p>
+          <p class="text-xs text-slate-600 mt-1">Automatically detects Target Items, Auditors, and Adjustments. Duplicate rows are safely ignored.</p>
+          <div class="mt-3 flex items-center gap-2">
+            <input type="file" id="excel-upload-input" accept=".xlsx,.xls,.csv" class="text-xs file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-700">
+            <button onclick="processExcelUpload()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-lg">Upload & Sync</button>
+          </div>
+          <p id="import-log" class="text-xs font-semibold text-emerald-700 mt-2"></p>
+        </div>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col justify-between">
+          <div>
+            <p class="text-xs font-bold text-slate-800 uppercase">Branch Mapping Rules Active</p>
+            <p class="text-xs text-slate-600 mt-1 leading-relaxed">
+              <strong>EME</strong>=EME Society | <strong>BT</strong>=Bahria Town | <strong>AB</strong>=Asif Block | <strong>KB</strong>=Karim Block | <strong>KT</strong>=Al-Kabir Town | <strong>GT</strong>=Garden Town | <strong>WT</strong>=Wapda Town | <strong>MT</strong>=Mustafa Town | <strong>WH</strong>=Warehouse
+            </p>
+          </div>
+          <div class="mt-3 flex gap-2">
+            <button onclick="clearAdjustmentsOnly()" class="bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-semibold px-3 py-1.5 rounded-lg">Reset Adjustments Only</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="p-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-2">
+        <h3 class="text-sm font-bold text-slate-800">All Adjustment Entries Ledger (Raw + Auditor + Target Tag)</h3>
+        <input type="text" id="opt5-search" onkeyup="renderOpt5()" placeholder="Filter by Doc#, Code, Branch, Auditor..." class="border border-slate-300 rounded-lg px-3 py-1.5 text-xs w-64">
+      </div>
+      <div class="overflow-x-auto max-h-[550px]">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-slate-900 text-white uppercase sticky top-0">
+            <tr>
+              <th class="p-3">Date</th>
+              <th class="p-3">Branch</th>
+              <th class="p-3">Auditor</th>
+              <th class="p-3">Doc#</th>
+              <th class="p-3">Code</th>
+              <th class="p-3">Item Description</th>
+              <th class="p-3">Type</th>
+              <th class="p-3">Status</th>
+              <th class="p-3 text-right">Adj Qty</th>
+              <th class="p-3 text-right">Net Total (Rs.)</th>
+            </tr>
+          </thead>
+          <tbody id="opt5-tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// =========================================================================
+// 1. SUPABASE CONFIGURATION
+// =========================================================================
+const SUPABASE_URL = "https://wudxbrrdgdshqgqdjglb.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_98S75AtWaDNwLdJpTlri4w_8d4y5Pez";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// =========================================================================
+// 2. BRANCH DEFINITIONS & MAPPING
+// =========================================================================
+const BRANCHES = [
+  { code: 'EME', name: 'EME Society' },
+  { code: 'BT',  name: 'Bahria Town' },
+  { code: 'AB',  name: 'Asif Block' },
+  { code: 'KB',  name: 'Karim Block' },
+  { code: 'KT',  name: 'Al-Kabir Town' },
+  { code: 'GT',  name: 'Garden Town' },
+  { code: 'WT',  name: 'Wapda Town' },
+  { code: 'MT',  name: 'Mustafa Town' },
+  { code: 'WH',  name: 'Warehouse' }
+];
+
+const LOCATION_TO_CODE = {
+  'EME SOCIETY': 'EME', 'EME': 'EME',
+  'BAHRIA TOWN': 'BT',  'BT': 'BT',
+  'ASIF BLOCK': 'AB',   'AB': 'AB',
+  'KARIM BLOCK': 'KB',  'KB': 'KB',
+  'AL-KABIR TOWN': 'KT','AL-KABEER TOWN': 'KT', 'KT': 'KT',
+  'GARDEN TOWN': 'GT',  'GT': 'GT',
+  'WAPDA TOWN': 'WT',   'WT': 'WT',
+  'MUSTAFA TOWN': 'MT', 'MT': 'MT',
+  'WAREHOUSE': 'WH',    'WH': 'WH'
+};
+
+function normalizeBranch(raw) {
+  if (!raw) return 'UNKNOWN';
+  const key = String(raw).trim().toUpperCase();
+  return LOCATION_TO_CODE[key] || key;
+}
+
+function getBranchName(code) {
+  const b = BRANCHES.find(x => x.code === code);
+  return b ? `${b.name} (${b.code})` : code;
+}
+
+// =========================================================================
+// 3. GLOBAL STATE
+// =========================================================================
+let STATE = {
+  auditors: [],
+  transfers: [],
+  targets: [],
+  adjustments: [],
+  targetMap: new Map(),
+  auditedUniqueBranchItem: new Map(),
+  dailyAuditorRows: [],
+  opt2Filtered: []
+};
+
+function showLoader(msg) {
+  document.getElementById('loader-text').innerText = msg;
+  document.getElementById('global-loader').classList.remove('hidden');
+}
+function hideLoader() {
+  document.getElementById('global-loader').classList.add('hidden');
+}
+
+// =========================================================================
+// 4. FETCH DATA FROM SUPABASE
+// =========================================================================
+async function fetchAllRows(table, selectCols = '*') {
+  let all = [];
+  let from = 0;
+  const step = 1000;
+  while (true) {
+    const { data, error } = await sb.from(table).select(selectCols).range(from, from + step - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < step) break;
+    from += step;
+  }
+  return all;
+}
+
+async function loadAllData() {
+  if (SUPABASE_URL.includes("YOUR_")) {
+    document.getElementById('db-status').innerText = "⚠ Check Supabase Keys";
+    return;
+  }
+  try {
+    showLoader("Loading Auditors, Targets & Adjustments from Supabase...");
+    const [auditors, transfers, targets, adjustments] = await Promise.all([
+      fetchAllRows('auditors'),
+      fetchAllRows('auditor_transfers'),
+      fetchAllRows('target_items'),
+      fetchAllRows('audit_adjustments')
+    ]);
+
+    STATE.auditors = auditors;
+    STATE.transfers = transfers.sort((a, b) => b.transfer_date.localeCompare(a.transfer_date));
+    STATE.targets = targets;
+    STATE.adjustments = adjustments;
+
+    document.getElementById('db-status').innerText = "● Connected (" + targets.length.toLocaleString() + " Targets)";
+    document.getElementById('db-status').className = "text-xs px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-medium";
+
+    computeAnalytics();
+    populateDropdowns();
+    renderDashboard();
+    renderOpt1();
+    renderOpt2();
+    renderOpt3();
+    renderOpt4();
+    renderOpt5();
+  } catch (err) {
+    console.error(err);
+    document.getElementById('db-status').innerText = "✖ Connection Error";
+    alert("Supabase Error: " + err.message);
+  } finally {
+    hideLoader();
+  }
+}
+
+// =========================================================================
+// 5. CORE BUSINESS LOGIC & TRUE CUMULATIVE UNIQUE TARGET TRACKING
+// =========================================================================
+function resolveAuditorForBranchDate(branchCode, dateStr, savedAuditor) {
+  if (savedAuditor && savedAuditor.trim() !== '') return savedAuditor;
+  const branchTransfers = STATE.transfers
+    .filter(t => t.to_branch === branchCode && t.transfer_date <= dateStr)
+    .sort((a, b) => b.transfer_date.localeCompare(a.transfer_date));
+  if (branchTransfers.length > 0) return branchTransfers[0].auditor_name;
+
+  const aud = STATE.auditors.find(a => a.branch_code === branchCode);
+  return aud ? aud.name : 'Unassigned';
+}
+
+function computeAnalytics() {
+  STATE.targetMap.clear();
+  STATE.targets.forEach(t => {
+    const key = `${t.branch_code}|${String(t.code).trim()}`;
+    STATE.targetMap.set(key, t);
+  });
+
+  const dayBranchItemMap = new Map();
+  STATE.auditedUniqueBranchItem.clear();
+
+  // Sort adjustments chronologically so we can calculate true cumulative unique target done up to each date
+  const sortedAdj = [...STATE.adjustments].sort((a, b) => a.audit_date.localeCompare(b.audit_date));
+
+  sortedAdj.forEach(adj => {
+    const b = adj.branch_code;
+    const d = adj.audit_date;
+    const c = String(adj.code).trim();
+    const auditor = resolveAuditorForBranchDate(b, d, adj.auditor_name);
+    adj._resolvedAuditor = auditor;
+
+    const branchItemKey = `${b}|${c}`;
+    const isTarget = STATE.targetMap.has(branchItemKey);
+    adj._isTarget = isTarget;
+
+    // Overall unique items
+    if (!STATE.auditedUniqueBranchItem.has(branchItemKey)) {
+      STATE.auditedUniqueBranchItem.set(branchItemKey, {
+        branch_code: b,
+        code: c,
+        barcode: adj.barcode,
+        description: adj.description,
+        isTarget,
+        firstAuditedDate: d,
+        netTotal: 0,
+        adjList: []
+      });
+    }
+    const bItem = STATE.auditedUniqueBranchItem.get(branchItemKey);
+    bItem.netTotal += Number(adj.net_total || 0);
+    bItem.adjList.push(adj);
+
+    const dayKey = `${b}|${d}|${c}`;
+    if (!dayBranchItemMap.has(dayKey)) {
+      dayBranchItemMap.set(dayKey, {
+        branch_code: b,
+        audit_date: d,
+        code: c,
+        auditor,
+        isTarget,
+        netTotal: 0
+      });
+    }
+    dayBranchItemMap.get(dayKey).netTotal += Number(adj.net_total || 0);
+  });
+
+  const dailyPerfMap = new Map();
+  dayBranchItemMap.forEach(entry => {
+    const gKey = `${entry.audit_date}|${entry.branch_code}|${entry.auditor}`;
+    if (!dailyPerfMap.has(gKey)) {
+      dailyPerfMap.set(gKey, {
+        date: entry.audit_date,
+        branch_code: entry.branch_code,
+        auditor: entry.auditor,
+        totalAudited: 0,
+        targetDone: 0,
+        extraDone: 0,
+        netAmount: 0
+      });
+    }
+    const row = dailyPerfMap.get(gKey);
+    row.totalAudited += 1;
+    if (entry.isTarget) row.targetDone += 1;
+    else row.extraDone += 1;
+    row.netAmount += entry.netTotal;
+  });
+
+  STATE.dailyAuditorRows = Array.from(dailyPerfMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// =========================================================================
+// 6. DASHBOARD
+// =========================================================================
+function renderDashboard() {
+  const totalTarget = STATE.targetMap.size;
+  let totalAudited = STATE.auditedUniqueBranchItem.size;
+  let targetAudited = 0;
+  let extraAudited = 0;
+  let totalNetAmount = 0;
+
+  STATE.auditedUniqueBranchItem.forEach(item => {
+    if (item.isTarget) targetAudited++;
+    else extraAudited++;
+    totalNetAmount += item.netTotal;
+  });
+
+  const pct = totalTarget > 0 ? ((targetAudited / totalTarget) * 100).toFixed(1) : 0;
+
+  document.getElementById('kpi-total-target').innerText = totalTarget.toLocaleString();
+  document.getElementById('kpi-total-audited').innerText = totalAudited.toLocaleString();
+  document.getElementById('kpi-target-audited').innerText = targetAudited.toLocaleString();
+  document.getElementById('kpi-target-pct').innerText = `${pct}% of Target Completed (${(totalTarget - targetAudited).toLocaleString()} Pending)`;
+  document.getElementById('kpi-extra-audited').innerText = extraAudited.toLocaleString();
+
+  const amtEl = document.getElementById('kpi-net-amount');
+  amtEl.innerText = `Rs. ${Math.round(totalNetAmount).toLocaleString()}`;
+  amtEl.className = `text-2xl font-extrabold mt-2 ${totalNetAmount < 0 ? 'text-rose-600' : 'text-emerald-600'}`;
+
+  const grid = document.getElementById('branch-cards-grid');
+  grid.innerHTML = '';
+
+  BRANCHES.forEach(br => {
+    const bTargets = STATE.targets.filter(t => t.branch_code === br.code);
+    const targetCount = bTargets.length;
+
+    let bTotalAudited = 0;
+    let bTargetDone = 0;
+    let bExtraDone = 0;
+    let bNetAmount = 0;
+
+    STATE.auditedUniqueBranchItem.forEach(item => {
+      if (item.branch_code === br.code) {
+        bTotalAudited++;
+        if (item.isTarget) bTargetDone++;
+        else bExtraDone++;
+        bNetAmount += item.netTotal;
+      }
+    });
+
+    const bPending = Math.max(0, targetCount - bTargetDone);
+    const bPct = targetCount > 0 ? Math.min(100, Math.round((bTargetDone / targetCount) * 100)) : 0;
+    const assignedAuds = STATE.auditors.filter(a => a.branch_code === br.code).map(a => a.name).join(', ') || 'Unassigned';
+
+    grid.innerHTML += `
+      <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200">
+        <div class="flex justify-between items-start">
+          <div>
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-900 text-white">${br.code}</span>
+            <h4 class="text-base font-bold text-slate-900 mt-1">${br.name}</h4>
+            <p class="text-xs text-slate-500 mt-0.5">Auditor: <strong class="text-slate-800">${assignedAuds}</strong></p>
+          </div>
+          <div class="text-right">
+            <span class="text-xs font-bold ${bNetAmount < 0 ? 'text-rose-600' : 'text-emerald-600'}">Rs. ${Math.round(bNetAmount).toLocaleString()}</span>
+            <p class="text-[11px] text-slate-400">Net Diff</p>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <div class="flex justify-between text-[11px] font-semibold text-slate-600 mb-1">
+            <span>Progress: ${bTargetDone.toLocaleString()} / ${targetCount.toLocaleString()}</span>
+            <span>${bPct}%</span>
+          </div>
+          <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+            <div class="bg-emerald-600 h-full" style="width: ${bPct}%"></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-slate-100 text-center">
+          <div>
+            <p class="text-[10px] text-slate-400 uppercase">Target</p>
+            <p class="text-xs font-bold text-slate-800">${targetCount.toLocaleString()}</p>
+          </div>
+          <div>
+            <p class="text-[10px] text-slate-400 uppercase">Total Done</p>
+            <p class="text-xs font-bold text-sky-700">${bTotalAudited.toLocaleString()}</p>
+          </div>
+          <div>
+            <p class="text-[10px] text-slate-400 uppercase">Target Hit</p>
+            <p class="text-xs font-bold text-emerald-700">${bTargetDone.toLocaleString()}</p>
+          </div>
+          <div>
+            <p class="text-[10px] text-slate-400 uppercase">Pending</p>
+            <p class="text-xs font-bold text-rose-600">${bPending.toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+}
+
+// =========================================================================
+// 7. OPTION 1: AUDITOR & DAILY PERFORMANCE
+// =========================================================================
+function resetOpt1Filters() {
+  document.getElementById('opt1-branch').value = 'ALL';
+  document.getElementById('opt1-auditor').value = 'ALL';
+  document.getElementById('opt1-date').value = '';
+  renderOpt1();
+}
+
+function getFilteredOpt1Rows() {
+  const br = document.getElementById('opt1-branch').value;
+  const aud = document.getElementById('opt1-auditor').value;
+  const dt = document.getElementById('opt1-date').value;
+
+  return STATE.dailyAuditorRows.filter(r => {
+    if (br !== 'ALL' && r.branch_code !== br) return false;
+    if (aud !== 'ALL' && r.auditor !== aud) return false;
+    if (dt && r.date !== dt) return false;
+    return true;
+  });
+}
+
+function renderOpt1() {
+  const rows = getFilteredOpt1Rows();
+  const tbody = document.getElementById('opt1-tbody');
+  const tfoot = document.getElementById('opt1-tfoot');
+  tbody.innerHTML = '';
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="p-6 text-center text-slate-400">No audit records found for selected filters.</td></tr>`;
+    tfoot.innerHTML = '';
+    return;
+  }
+
+  let sumTotalAudited = 0;
+  let sumTargetDone = 0;
+  let sumExtraDone = 0;
+  let sumNetAmount = 0;
+
+  rows.forEach(r => {
+    const bTotalTarget = STATE.targets.filter(t => t.branch_code === r.branch_code).length;
+    
+    // Calculate cumulative unique target items audited in this branch up to this date
+    let bUniqueTargetDoneUpToDate = 0;
+    STATE.auditedUniqueBranchItem.forEach(v => {
+      if (v.branch_code === r.branch_code && v.isTarget && v.firstAuditedDate <= r.date) {
+        bUniqueTargetDoneUpToDate++;
+      }
+    });
+    
+    const bPending = Math.max(0, bTotalTarget - bUniqueTargetDoneUpToDate);
+
+    sumTotalAudited += r.totalAudited;
+    sumTargetDone += r.targetDone;
+    sumExtraDone += r.extraDone;
+    sumNetAmount += r.netAmount;
+
+    tbody.innerHTML += `
+      <tr class="hover:bg-slate-50">
+        <td class="p-3 font-semibold text-slate-800">${r.date}</td>
+        <td class="p-3 font-bold">${getBranchName(r.branch_code)}</td>
+        <td class="p-3 font-semibold text-indigo-700">${r.auditor}</td>
+        <td class="p-3 text-right">${bTotalTarget.toLocaleString()}</td>
+        <td class="p-3 text-right font-bold text-sky-700">${r.totalAudited.toLocaleString()}</td>
+        <td class="p-3 text-right font-bold text-emerald-700">${r.targetDone.toLocaleString()}</td>
+        <td class="p-3 text-right font-bold text-amber-600">${r.extraDone.toLocaleString()}</td>
+        <td class="p-3 text-right font-bold text-rose-600">${bPending.toLocaleString()}</td>
+        <td class="p-3 text-right font-bold ${r.netAmount < 0 ? 'text-rose-600' : 'text-emerald-600'}">Rs. ${Math.round(r.netAmount).toLocaleString()}</td>
+      </tr>
+    `;
+  });
+
+  tfoot.innerHTML = `
+    <tr>
+      <td colspan="4" class="p-3 text-right uppercase text-slate-900 font-extrabold">Total Summary:</td>
+      <td class="p-3 text-right font-extrabold text-sky-800">${sumTotalAudited.toLocaleString()}</td>
+      <td class="p-3 text-right font-extrabold text-emerald-800">${sumTargetDone.toLocaleString()}</td>
+      <td class="p-3 text-right font-extrabold text-amber-700">${sumExtraDone.toLocaleString()}</td>
+      <td class="p-3 text-right text-slate-500">-</td>
+      <td class="p-3 text-right font-extrabold ${sumNetAmount < 0 ? 'text-rose-700' : 'text-emerald-700'}">Rs. ${Math.round(sumNetAmount).toLocaleString()}</td>
+    </tr>
+  `;
+}
+
+function exportOpt1Excel(type) {
+  const wb = XLSX.utils.book_new();
+  if (type === 'auditor_summary') {
+    const map = new Map();
+    STATE.dailyAuditorRows.forEach(r => {
+      if (!map.has(r.auditor)) map.set(r.auditor, { Auditor: r.auditor, Days_Worked: new Set(), Total_Items: 0, Target_Items: 0, Extra_Items: 0, Net_Amount_Diff: 0 });
+      const x = map.get(r.auditor);
+      x.Days_Worked.add(r.date);
+      x.Total_Items += r.totalAudited;
+      x.Target_Items += r.targetDone;
+      x.Extra_Items += r.extraDone;
+      x.Net_Amount_Diff += r.netAmount;
+    });
+    const data = Array.from(map.values()).map(x => ({
+      'Auditor Name': x.Auditor,
+      'Active Days': x.Days_Worked.size,
+      'Total Audited Items': x.Total_Items,
+      'Target Items Done': x.Target_Items,
+      'Extra Items Done': x.Extra_Items,
+      'Net Financial Diff (Rs)': Math.round(x.Net_Amount_Diff)
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Total_Auditor_Summary');
+    XLSX.writeFile(wb, '1_Total_Auditor_Summary.xlsx');
+  } else if (type === 'item_details') {
+    const data = STATE.adjustments.map(a => ({
+      'Date': a.audit_date,
+      'Branch': a.branch_code,
+      'Auditor Name': a._resolvedAuditor,
+      'Adjustment Doc#': a.doc_no,
+      'Item Code': a.code,
+      'Barcode': a.barcode,
+      'Item Description': a.description,
+      'Category': a._isTarget ? 'TARGET' : 'EXTRA',
+      'Status': a.status,
+      'Adj Qty': a.adj_qty,
+      'Price': a.price,
+      'Amount Diff (Net Total)': a.net_total
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Items_Adjustment_Details');
+    XLSX.writeFile(wb, '2_Items_And_Adjustments_Details.xlsx');
+  } else if (type === 'branch_summary') {
+    const data = BRANCHES.map(br => {
+      const targetCount = STATE.targets.filter(t => t.branch_code === br.code).length;
+      let total = 0, tDone = 0, extra = 0, net = 0;
+      STATE.auditedUniqueBranchItem.forEach(v => {
+        if (v.branch_code === br.code) {
+          total++;
+          if (v.isTarget) tDone++; else extra++;
+          net += v.netTotal;
+        }
+      });
+      return {
+        'Branch Code': br.code,
+        'Branch Name': br.name,
+        'Total Target Items': targetCount,
+        'Total Audited': total,
+        'Target Completed': tDone,
+        'Pending Target Items': Math.max(0, targetCount - tDone),
+        'Extra Items': extra,
+        'Net Amount Diff (Rs)': Math.round(net)
+      };
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Branch_Summary');
+    XLSX.writeFile(wb, '3_Branch_Audit_Summary.xlsx');
+  }
+}
+
+// =========================================================================
+// 8. OPTION 2: MASTER ITEMS STATUS
+// =========================================================================
+function renderOpt2() {
+  const br = document.getElementById('opt2-branch').value;
+  const st = document.getElementById('opt2-status').value;
+  const q = document.getElementById('opt2-search').value.trim().toLowerCase();
+
+  let combined = [];
+  STATE.targets.forEach(t => {
+    if (br !== 'ALL' && t.branch_code !== br) return;
+    const key = `${t.branch_code}|${String(t.code).trim()}`;
+    const audRec = STATE.auditedUniqueBranchItem.get(key);
+    const status = audRec ? 'AUDITED' : 'PENDING';
+    if (st !== 'ALL' && st !== status) return;
+
+    combined.push({
+      branch_code: t.branch_code,
+      status,
+      group: `${t.item_group || ''} / ${t.sub_group || ''}`,
+      code: t.code,
+      barcode: t.barcode || '',
+      description: t.description || '',
+      oct_sale: t.oct_sale || 0,
+      netTotal: audRec ? audRec.netTotal : 0
+    });
+  });
+
+  if (st === 'ALL' || st === 'EXTRA') {
+    STATE.auditedUniqueBranchItem.forEach(v => {
+      if (!v.isTarget) {
+        if (br !== 'ALL' && v.branch_code !== br) return;
+        combined.push({
+          branch_code: v.branch_code,
+          status: 'EXTRA',
+          group: 'Non-Target / Extra',
+          code: v.code,
+          barcode: v.barcode || '',
+          description: v.description || '',
+          oct_sale: 0,
+          netTotal: v.netTotal
+        });
+      }
+    });
+  }
+
+  if (q) {
+    combined = combined.filter(x =>
+      String(x.code).toLowerCase().includes(q) ||
+      String(x.barcode).toLowerCase().includes(q) ||
+      String(x.description).toLowerCase().includes(q)
+    );
+  }
+
+  STATE.opt2Filtered = combined;
+  const audCount = combined.filter(x => x.status === 'AUDITED').length;
+  const penCount = combined.filter(x => x.status === 'PENDING').length;
+  const extCount = combined.filter(x => x.status === 'EXTRA').length;
+
+  document.getElementById('opt2-summary-strip').innerHTML = `
+    <div class="bg-slate-100 p-2.5 rounded-lg"><strong>Showing:</strong> ${combined.length.toLocaleString()} items</div>
+    <div class="bg-emerald-50 text-emerald-800 p-2.5 rounded-lg"><strong>Target Audited:</strong> ${audCount.toLocaleString()}</div>
+    <div class="bg-rose-50 text-rose-800 p-2.5 rounded-lg"><strong>Target Pending:</strong> ${penCount.toLocaleString()}</div>
+    <div class="bg-amber-50 text-amber-800 p-2.5 rounded-lg"><strong>Extra Audited:</strong> ${extCount.toLocaleString()}</div>
+  `;
+
+  const tbody = document.getElementById('opt2-tbody');
+  const slice = combined.slice(0, 300);
+  tbody.innerHTML = slice.map(x => {
+    const badge = x.status === 'AUDITED'
+      ? '<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">AUDITED</span>'
+      : x.status === 'PENDING'
+      ? '<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-bold">PENDING</span>'
+      : '<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">EXTRA</span>';
+    return `
+      <tr class="hover:bg-slate-50">
+        <td class="p-3 font-bold">${x.branch_code}</td>
+        <td class="p-3">${badge}</td>
+        <td class="p-3 text-slate-500">${x.group}</td>
+        <td class="p-3 font-mono font-semibold">${x.code}</td>
+        <td class="p-3 font-mono text-slate-500">${x.barcode}</td>
+        <td class="p-3 font-medium text-slate-800">${x.description}</td>
+        <td class="p-3 text-right">${x.oct_sale}</td>
+        <td class="p-3 text-right font-semibold ${x.netTotal < 0 ? 'text-rose-600' : 'text-slate-700'}">${Math.round(x.netTotal).toLocaleString()}</td>
+      </tr>
+    `;
+  }).join('');
+
+  document.getElementById('opt2-pagination').innerText =
+    `Displaying ${slice.length} of ${combined.length.toLocaleString()} matching records (Click Download Excel to export all).`;
+}
+
+function exportOpt2Excel() {
+  const wb = XLSX.utils.book_new();
+  const data = STATE.opt2Filtered.map(x => ({
+    'Branch': x.branch_code,
+    'Audit Status': x.status,
+    'Group / Sub-Group': x.group,
+    'Item Code': x.code,
+    'Barcode': x.barcode,
+    'Item Description': x.description,
+    'Oct Sale': x.oct_sale,
+    'Net Diff (Rs)': Math.round(x.netTotal)
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Items_Audit_Status');
+  XLSX.writeFile(wb, 'Master_Items_Audit_Status.xlsx');
+}
+
+// =========================================================================
+// 9. OPTION 3: 300-ITEM PENDING BATCHES
+// =========================================================================
+function getPendingBatchesForBranch(branchCode) {
+  const pending = STATE.targets
+    .filter(t => t.branch_code === branchCode && !STATE.auditedUniqueBranchItem.has(`${t.branch_code}|${String(t.code).trim()}`))
+    .sort((a, b) => (a.sub_group || '').localeCompare(b.sub_group || '') || (a.item_group || '').localeCompare(b.item_group || ''));
+
+  const batches = [];
+  for (let i = 0; i < pending.length; i += 300) {
+    const chunk = pending.slice(i, i + 300);
+    const subGroups = [...new Set(chunk.map(c => c.sub_group || 'General'))];
+    batches.push({
+      batchNo: batches.length + 1,
+      branchCode,
+      items: chunk,
+      subGroups
+    });
+  }
+  return batches;
+}
+
+function renderOpt3() {
+  const br = document.getElementById('opt3-branch').value;
+  const batches = getPendingBatchesForBranch(br);
+  const grid = document.getElementById('opt3-batches-grid');
+
+  if (batches.length === 0) {
+    grid.innerHTML = `<div class="col-span-3 bg-emerald-50 border border-emerald-200 text-emerald-800 p-6 rounded-xl text-center font-bold">All target items for ${getBranchName(br)} are 100% audited! Zero pending batches.</div>`;
+    return;
+  }
+
+  grid.innerHTML = batches.map(b => `
+    <div class="bg-white rounded-xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between">
+      <div>
+        <div class="flex justify-between items-center">
+          <span class="bg-sky-100 text-sky-900 text-xs font-extrabold px-2.5 py-1 rounded-md">BATCH #${b.batchNo}</span>
+          <span class="text-xs font-bold text-slate-600">${b.items.length} Pending Items</span>
+        </div>
+        <h4 class="text-sm font-bold text-slate-900 mt-3">${getBranchName(b.branchCode)} — Day Sheet ${b.batchNo}</h4>
+        <p class="text-xs text-slate-500 mt-1"><strong>Sub-Groups Covered (${b.subGroups.length}):</strong> ${b.subGroups.slice(0, 3).join(', ')}${b.subGroups.length > 3 ? '...' : ''}</p>
+      </div>
+      <button onclick="downloadSingleBatch(${b.batchNo})" class="mt-4 w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-lg">⬇ Download Batch #${b.batchNo} (.xlsx)</button>
+    </div>
+  `).join('');
+}
+
+function downloadSingleBatch(batchNo) {
+  const br = document.getElementById('opt3-branch').value;
+  const batches = getPendingBatchesForBranch(br);
+  const b = batches.find(x => x.batchNo === batchNo);
+  if (!b) return;
+
+  const wb = XLSX.utils.book_new();
+  const rows = b.items.map((it, idx) => ({
+    'Sr#': idx + 1,
+    'Branch': it.branch_code,
+    'Group': it.item_group,
+    'Sub Group': it.sub_group,
+    'Code': it.code,
+    'Barcode': it.barcode,
+    'Item Description': it.description,
+    'Max': it.max_qty,
+    'Oct Sale': it.oct_sale,
+    'Physical Count': ''
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), `Batch_${batchNo}`);
+  XLSX.writeFile(wb, `${br}_Pending_Batch_${batchNo}_300Items.xlsx`);
+}
+
+function exportAllBatchesExcel() {
+  const br = document.getElementById('opt3-branch').value;
+  const batches = getPendingBatchesForBranch(br);
+  if (batches.length === 0) return alert("No pending items for this branch.");
+  const wb = XLSX.utils.book_new();
+  batches.forEach(b => {
+    const rows = b.items.map((it, idx) => ({
+      'Sr#': idx + 1,
+      'Sub Group': it.sub_group,
+      'Code': it.code,
+      'Barcode': it.barcode,
+      'Item Description': it.description,
+      'Oct Sale': it.oct_sale,
+      'Physical Count': ''
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), `Batch_${b.batchNo}`);
+  });
+  XLSX.writeFile(wb, `${br}_All_Pending_Batches.xlsx`);
+}
+
+// =========================================================================
+// 10. OPTION 4: AUDITOR MANAGEMENT
+// =========================================================================
+async function addAuditor() {
+  const name = document.getElementById('new-aud-name').value.trim();
+  const branch_code = document.getElementById('new-aud-branch').value;
+  const daily_target = Number(document.getElementById('new-aud-target').value || 300);
+  const total_days = Number(document.getElementById('new-aud-days').value || 25);
+  if (!name) return alert("Enter auditor name");
+
+  showLoader("Adding auditor...");
+  const { error } = await sb.from('auditors').insert([{ name, branch_code, daily_target, total_days }]);
+  if (error) alert(error.message);
+  document.getElementById('new-aud-name').value = '';
+  await loadAllData();
+}
+
+async function deleteAuditor(id, name) {
+  if (!confirm(`Delete auditor "${name}" from roster?`)) return;
+  showLoader("Removing auditor...");
+  const { error } = await sb.from('auditors').delete().eq('id', id);
+  if (error) alert(error.message);
+  await loadAllData();
+}
+
+function autoFillFromBranch() {
+  const id = document.getElementById('tr-aud-select').value;
+  const aud = STATE.auditors.find(a => a.id === id);
+  document.getElementById('tr-from-branch').value = aud ? aud.branch_code : '';
+}
+
+async function transferAuditor() {
+  const id = document.getElementById('tr-aud-select').value;
+  const aud = STATE.auditors.find(a => a.id === id);
+  const to_branch = document.getElementById('tr-to-branch').value;
+  const transfer_date = document.getElementById('tr-date').value;
+  if (!aud || !transfer_date) return alert("Select auditor and transfer date");
+  if (aud.branch_code === to_branch) return alert("Auditor is already in this branch");
+
+  showLoader("Recording transfer...");
+  await sb.from('auditor_transfers').insert([{
+    auditor_id: aud.id,
+    auditor_name: aud.name,
+    from_branch: aud.branch_code,
+    to_branch,
+    transfer_date
+  }]);
+  await sb.from('auditors').update({ branch_code: to_branch }).eq('id', aud.id);
+  await loadAllData();
+}
+
+function renderOpt4() {
+  const roster = document.getElementById('auditors-roster-list');
+  roster.innerHTML = STATE.auditors.map(a => `
+    <div class="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+      <div>
+        <p class="font-bold text-slate-900">${a.name}</p>
+        <p class="text-slate-500">Branch: <strong>${a.branch_code}</strong> • Target: ${a.daily_target}/day</p>
+      </div>
+      <button onclick="deleteAuditor('${a.id}', '${a.name}')" class="text-rose-600 hover:bg-rose-100 px-2 py-1 rounded font-semibold">Delete</button>
+    </div>
+  `).join('');
+
+  const trSel = document.getElementById('tr-aud-select');
+  trSel.innerHTML = STATE.auditors.map(a => `<option value="${a.id}">${a.name} (${a.branch_code})</option>`).join('');
+  autoFillFromBranch();
+
+  const tbody = document.getElementById('transfer-history-tbody');
+  tbody.innerHTML = STATE.transfers.map(t => `
+    <tr>
+      <td class="p-3 font-semibold">${t.transfer_date}</td>
+      <td class="p-3 font-bold text-indigo-700">${t.auditor_name}</td>
+      <td class="p-3">${getBranchName(t.from_branch)}</td>
+      <td class="p-3 font-bold text-emerald-700">${getBranchName(t.to_branch)}</td>
+      <td class="p-3 text-slate-500">${t.notes || 'Branch Reassignment'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="p-4 text-center text-slate-400">No transfers recorded yet.</td></tr>';
+}
+
+// =========================================================================
+// 11. OPTION 5: IMPORT & WORKING
+// =========================================================================
+function renderOpt5() {
+  const q = document.getElementById('opt5-search').value.trim().toLowerCase();
+  let rows = STATE.adjustments;
+  if (q) {
+    rows = rows.filter(r =>
+      String(r.doc_no).toLowerCase().includes(q) ||
+      String(r.code).toLowerCase().includes(q) ||
+      String(r.branch_code).toLowerCase().includes(q) ||
+      String(r._resolvedAuditor).toLowerCase().includes(q) ||
+      String(r.description).toLowerCase().includes(q)
+    );
+  }
+
+  const tbody = document.getElementById('opt5-tbody');
+  tbody.innerHTML = rows.slice(0, 300).map(r => `
+    <tr class="hover:bg-slate-50">
+      <td class="p-2.5">${r.audit_date}</td>
+      <td class="p-2.5 font-bold">${r.branch_code}</td>
+      <td class="p-2.5 font-semibold text-indigo-700">${r._resolvedAuditor}</td>
+      <td class="p-2.5">${r.doc_no || ''}</td>
+      <td class="p-2.5 font-mono">${r.code}</td>
+      <td class="p-2.5">${r.description || ''}</td>
+      <td class="p-2.5"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${r._isTarget ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${r._isTarget ? 'TARGET' : 'EXTRA'}</span></td>
+      <td class="p-2.5">${r.status || ''}</td>
+      <td class="p-2.5 text-right">${r.adj_qty}</td>
+      <td class="p-2.5 text-right font-semibold ${r.net_total < 0 ? 'text-rose-600' : 'text-emerald-600'}">${Number(r.net_total).toFixed(2)}</td>
+    </tr>
+  `).join('');
+}
+
+function exportFullWorkingExcel() {
+  const wb = XLSX.utils.book_new();
+  const data = STATE.adjustments.map(r => ({
+    'Date': r.audit_date,
+    'Branch': r.branch_code,
+    'Auditor': r._resolvedAuditor,
+    'Doc#': r.doc_no,
+    'Code': r.code,
+    'Barcode': r.barcode,
+    'Description': r.description,
+    'Target/Extra': r._isTarget ? 'TARGET' : 'EXTRA',
+    'Status': r.status,
+    'Adj Qty': r.adj_qty,
+    'Price': r.price,
+    'Net Total': r.net_total
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), 'Full_Working_Ledger');
+  XLSX.writeFile(wb, 'Complete_Stock_Audit_Working_Report.xlsx');
+}
+
+function parseExcelDate(val) {
+  if (!val) return new Date().toISOString().slice(0, 10);
+  if (typeof val === 'number') {
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+    return d.toISOString().slice(0, 10);
+  }
+  const parsed = new Date(val);
+  return isNaN(parsed) ? String(val).slice(0, 10) : parsed.toISOString().slice(0, 10);
+}
+
+async function processExcelUpload() {
+  const fileInput = document.getElementById('excel-upload-input');
+  if (!fileInput.files.length) return alert("Please choose your Excel file first.");
+  const logEl = document.getElementById('import-log');
+  logEl.innerText = "Reading Excel workbook...";
+
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      showLoader("Importing sheets into Supabase...");
+
+      const targetSheetName = wb.SheetNames.find(n => n.toLowerCase().includes('targat'));
+      if (targetSheetName) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[targetSheetName]);
+        const audRows = rows
+          .filter(r => r['Team Auditior'] && String(r['Team Auditior']).trim() !== '')
+          .map(r => ({
+            name: String(r['Team Auditior']).trim(),
+            branch_code: normalizeBranch(r['BRANCH NAME']),
+            daily_target: Number(r['D-TARGET ITEMS'] || 300),
+            total_days: Number(r['T.DAYS'] || 25)
+          }));
+        if (audRows.length > 0 && STATE.auditors.length === 0) {
+          await sb.from('auditors').insert(audRows);
+        }
+      }
+
+      const itemsSheetName = wb.SheetNames.find(n => n.toLowerCase().includes('itrem') || n.toLowerCase().includes('item'));
+      if (itemsSheetName) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[itemsSheetName]);
+        const mappedItems = rows
+          .filter(r => r['Code'] != null)
+          .map(r => ({
+            branch_code: normalizeBranch(r['branch '] || r['branch'] || r['BRANCH']),
+            item_group: String(r['Group'] || '').trim(),
+            sub_group: String(r['Sub group'] || '').trim(),
+            code: String(r['Code']).trim(),
+            barcode: String(r['Barcode'] || '').trim(),
+            description: String(r['Item description'] || '').trim(),
+            max_qty: Number(r['Max'] || 0),
+            oct_sale: Number(r['Oct sale'] || 0)
+          }));
+
+        for (let i = 0; i < mappedItems.length; i += 1000) {
+          showLoader(`Uploading Target Items: ${i} / ${mappedItems.length}...`);
+          await sb.from('target_items').upsert(mappedItems.slice(i, i + 1000), { onConflict: 'branch_code,code' });
+        }
+      }
+
+      const adjSheetName = wb.SheetNames.find(n => n.toLowerCase().includes('ajst') || n.toLowerCase().includes('adj')) || wb.SheetNames[0];
+      const adjRaw = XLSX.utils.sheet_to_json(wb.Sheets[adjSheetName]);
+      if (adjRaw.length > 0 && (adjRaw[0]['LOCATION'] || adjRaw[0]['CODE'])) {
+        const mappedAdj = adjRaw
+          .filter(r => r['CODE'] != null)
+          .map(r => ({
+            branch_code: normalizeBranch(r['LOCATION']),
+            location_raw: String(r['LOCATION'] || '').trim(),
+            audit_date: parseExcelDate(r['DATE']),
+            doc_no: String(r['DOC#'] || '').trim(),
+            code: String(r['CODE']).trim(),
+            barcode: String(r['BARCODE'] || '').trim(),
+            description: String(r['ITEM DESCRIPTION'] || '').trim(),
+            status: String(r['STATUS'] || '').trim(),
+            adj_qty: Number(r['ADJ.QTY'] || 0),
+            price: Number(r['PRICE'] || 0),
+            net_total: Number(r['NET TOTAL'] || 0),
+            reason: String(r['REASON'] || 'STOCK TAKE').trim()
+          }));
+
+        for (let i = 0; i < mappedAdj.length; i += 1000) {
+          showLoader(`Uploading Adjustments: ${i} / ${mappedAdj.length}...`);
+          await sb.from('audit_adjustments').insert(mappedAdj.slice(i, i + 1000));
+        }
+      }
+
+      logEl.innerText = "✔ Import Complete! All Dashboard & Batch metrics updated.";
+      await loadAllData();
+    } catch (err) {
+      console.error(err);
+      alert("Import Error: " + err.message);
+    } finally {
+      hideLoader();
+    }
+  };
+  reader.readAsArrayBuffer(fileInput.files[0]);
+}
+
+async function clearAdjustmentsOnly() {
+  if (!confirm("Delete all adjustment records so you can re-import clean data?")) return;
+  showLoader("Clearing adjustments...");
+  await sb.from('audit_adjustments').delete().neq('id', 0);
+  await loadAllData();
+}
+
+function switchTab(tabName) {
+  ['dashboard', 'opt1', 'opt2', 'opt3', 'opt4', 'opt5'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.add('hidden');
+    document.getElementById(`nav-${t}`).classList.remove('active');
+  });
+  document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+  document.getElementById(`nav-${tabName}`).classList.add('active');
+}
+
+function populateDropdowns() {
+  const branchOptsAll = `<option value="ALL">All 9 Branches (Overall)</option>` +
+    BRANCHES.map(b => `<option value="${b.code}">${b.name} (${b.code})</option>`).join('');
+  const branchOptsOnly = BRANCHES.map(b => `<option value="${b.code}">${b.name} (${b.code})</option>`).join('');
+
+  document.getElementById('opt1-branch').innerHTML = branchOptsAll;
+  document.getElementById('opt2-branch').innerHTML = branchOptsAll;
+  document.getElementById('opt3-branch').innerHTML = branchOptsOnly;
+  document.getElementById('new-aud-branch').innerHTML = branchOptsOnly;
+  document.getElementById('tr-to-branch').innerHTML = branchOptsOnly;
+
+  const audNames = [...new Set(STATE.auditors.map(a => a.name))];
+  document.getElementById('opt1-auditor').innerHTML = `<option value="ALL">All Auditors</option>` +
+    audNames.map(n => `<option value="${n}">${n}</option>`).join('');
+
+  document.getElementById('tr-date').value = new Date().toISOString().slice(0, 10);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  populateDropdowns();
+  loadAllData();
+});
+</script>
+</body>
+</html>
